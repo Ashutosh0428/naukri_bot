@@ -45,6 +45,10 @@ def load_credentials():
     if not username or not password:
         raise ValueError("NAUKRI_USERNAME and NAUKRI_PASSWORD must be set")
 
+    # Default: resume.pdf in same folder as this script
+    if not resume_path:
+        resume_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resume.pdf")
+
     return username, password, resume_path
 
 

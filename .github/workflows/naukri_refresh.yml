@@ -47,5 +47,4 @@ jobs:
           NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          RESUME_BASE64: ${{ secrets.RESUME_BASE64 }}
         run: python naukri_bot/bot_chrome.py
