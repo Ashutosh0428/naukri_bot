@@ -41,13 +41,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore session cookies
-        uses: actions/cache/restore@v4
-        with:
-          path: naukri_bot/naukri_cookies.json
-          key: naukri-cookies
-          restore-keys: naukri-cookies
-
       - name: Run Naukri bot
         env:
           NAUKRI_USERNAME: ${{ secrets.NAUKRI_USERNAME }}
@@ -57,9 +50,13 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: python naukri_bot/bot_chrome.py
 
-      - name: Save session cookies
-        uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: naukri_bot/naukri_cookies.json
-          key: naukri-cookies-${{ github.run_id }}
+      - name: Commit refreshed cookies
+        if: success()
+        run: |
+          git config user.name "naukri-bot"
+          git config user.email "naukri-bot@users.noreply.github.com"
+          git add naukri_bot/naukri_cookies.json
+          git diff --staged --quiet || git commit -m "chore: refresh session cookies [skip ci]"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
