@@ -162,10 +162,12 @@ def try_cookie_login(driver) -> bool:
                 pass
         driver.get("https://www.naukri.com/mnjuser/profile")
         human_delay(5, 7)
-        if "mnjuser/profile" in driver.current_url:
+        cur = driver.current_url
+        logging.info(f"Cookie login check URL: {cur}")
+        if "mnjuser/profile" in cur and "nlogin" not in cur:
             logging.info("Cookie login OK — skipping OTP entirely")
             return True
-        logging.info(f"Cookies stale (redirected to {driver.current_url}) — fresh login")
+        logging.info(f"Cookies stale/invalid (redirected to {cur}) — fresh login")
         return False
     except Exception as e:
         logging.warning(f"Cookie login attempt failed: {e}")
