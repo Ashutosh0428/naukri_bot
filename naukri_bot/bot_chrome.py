@@ -131,10 +131,57 @@ def build_driver() -> webdriver.Chrome:
 
 
 # ---------------------------------------------------------------------------
+# Cookie persistence — avoids OTP on repeated runs
+# ---------------------------------------------------------------------------
+COOKIES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "naukri_cookies.json")
+
+
+def save_cookies(driver):
+    try:
+        with open(COOKIES_FILE, "w") as f:
+            json.dump(driver.get_cookies(), f)
+        logging.info(f"Cookies saved: {COOKIES_FILE}")
+    except Exception as e:
+        logging.warning(f"Cookie save failed: {e}")
+
+
+def try_cookie_login(driver) -> bool:
+    if not os.path.exists(COOKIES_FILE):
+        logging.info("No cookies file — will do fresh login")
+        return False
+    try:
+        driver.get("https://www.naukri.com")
+        human_delay(2, 3)
+        with open(COOKIES_FILE) as f:
+            cookies = json.load(f)
+        for cookie in cookies:
+            cookie.pop("sameSite", None)
+            try:
+                driver.add_cookie(cookie)
+            except Exception:
+                pass
+        driver.get("https://www.naukri.com/mnjuser/profile")
+        human_delay(5, 7)
+        if "mnjuser/profile" in driver.current_url:
+            logging.info("Cookie login OK — skipping OTP entirely")
+            return True
+        logging.info(f"Cookies stale (redirected to {driver.current_url}) — fresh login")
+        return False
+    except Exception as e:
+        logging.warning(f"Cookie login attempt failed: {e}")
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Login
 # ---------------------------------------------------------------------------
 def login(driver):
     logging.info("Logging in...")
+
+    # Reuse saved session — skips OTP on GitHub Actions
+    if try_cookie_login(driver):
+        return
+
     driver.get("https://www.naukri.com/nlogin/login")
     human_delay(3, 5)
 
@@ -160,8 +207,8 @@ def login(driver):
     click_js(driver, login_btn)
     human_delay(8, 12)
 
-    # Handle OTP screen if Naukri requires verification from new IP
     handle_otp_if_present(driver)
+    save_cookies(driver)
     logging.info("Login done")
 
 
@@ -225,40 +272,86 @@ def get_otp_from_gmail(max_wait_sec: int = 60) -> str:
     raise Exception("OTP not received in Gmail within 60 seconds")
 
 
+def _detect_otp_page(driver) -> bool:
+    url = driver.current_url.lower()
+    if any(k in url for k in ["verify", "otp", "security", "mfa", "challenge", "validation"]):
+        return True
+    try:
+        src = driver.page_source.lower()
+        return any(k in src for k in ["enter otp", "one time password", "verification code",
+                                       "otp sent", "otp has been sent"])
+    except Exception:
+        return False
+
+
 def handle_otp_if_present(driver):
     """Auto-handle Naukri OTP screen using Gmail IMAP."""
-    try:
-        otp_input = WebDriverWait(driver, 6).until(
-            EC.presence_of_element_located(
-                (By.XPATH, "//input[contains(translate(@placeholder,'OTP','otp'),'otp') "
-                           "or contains(@id,'otp') or contains(@name,'otp') "
-                           "or contains(@class,'otp')]")
+    human_delay(2, 3)
+    logging.info(f"Post-login URL: {driver.current_url}")
+
+    on_otp_page = _detect_otp_page(driver)
+
+    if not on_otp_page:
+        # Fallback: look for OTP input element
+        try:
+            WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, "//input[contains(translate(@placeholder,'OTP','otp'),'otp') "
+                               "or contains(@id,'otp') or contains(@name,'otp') "
+                               "or contains(@class,'otp')]")
+                )
             )
-        )
-        logging.info(f"OTP screen detected at: {driver.current_url}")
+            on_otp_page = True
+        except TimeoutException:
+            pass
 
-        otp = get_otp_from_gmail(max_wait_sec=60)
+    if not on_otp_page:
+        logging.info("No OTP screen — proceeding")
+        return
 
-        otp_input.click()
-        human_delay(0.5, 1)
-        type_slow(otp_input, otp)
-        human_delay(1, 2)
+    logging.info(f"OTP screen detected: {driver.current_url}")
+    driver.save_screenshot("/tmp/otp_screen_debug.png")
 
-        # Click submit/verify button
-        for sel in ["//button[@type='submit']", "//button[contains(text(),'Verify')]",
-                    "//button[contains(text(),'Submit')]", "//input[@type='submit']"]:
-            try:
-                btn = WebDriverWait(driver, 4).until(EC.element_to_be_clickable((By.XPATH, sel)))
-                click_js(driver, btn)
-                break
-            except TimeoutException:
-                continue
+    # Find OTP input — try multiple selectors
+    otp_input = None
+    for by, sel in [
+        (By.XPATH, "//input[contains(translate(@placeholder,'OTP','otp'),'otp')]"),
+        (By.XPATH, "//input[contains(@id,'otp') or contains(@name,'otp') or contains(@class,'otp')]"),
+        (By.XPATH, "//input[@type='number']"),
+        (By.XPATH, "//input[@type='tel']"),
+        (By.XPATH, "//input[@type='text' and @maxlength='6']"),
+        (By.XPATH, "//input[@type='text']"),
+    ]:
+        try:
+            otp_input = WebDriverWait(driver, 3).until(EC.presence_of_element_located((by, sel)))
+            logging.info(f"OTP input found via: {sel}")
+            break
+        except TimeoutException:
+            continue
 
-        human_delay(6, 10)
-        logging.info("OTP submitted successfully")
+    if not otp_input:
+        logging.error("OTP page detected but input not found — check /tmp/otp_screen_debug.png")
+        return
 
-    except TimeoutException:
-        pass  # No OTP screen — good
+    otp = get_otp_from_gmail(max_wait_sec=60)
+    otp_input.click()
+    human_delay(0.5, 1)
+    type_slow(otp_input, otp)
+    human_delay(1, 2)
+
+    for sel in ["//button[@type='submit']", "//button[contains(text(),'Verify')]",
+                "//button[contains(text(),'Submit')]", "//button[contains(text(),'Continue')]",
+                "//input[@type='submit']"]:
+        try:
+            btn = WebDriverWait(driver, 4).until(EC.element_to_be_clickable((By.XPATH, sel)))
+            click_js(driver, btn)
+            logging.info(f"OTP submitted via: {sel}")
+            break
+        except TimeoutException:
+            continue
+
+    human_delay(6, 10)
+    logging.info("OTP submitted successfully")
 
 
 # ---------------------------------------------------------------------------

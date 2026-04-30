@@ -41,10 +41,25 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Restore session cookies
+        uses: actions/cache/restore@v4
+        with:
+          path: naukri_bot/naukri_cookies.json
+          key: naukri-cookies
+          restore-keys: naukri-cookies
+
       - name: Run Naukri bot
         env:
           NAUKRI_USERNAME: ${{ secrets.NAUKRI_USERNAME }}
           NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: python naukri_bot/bot_chrome.py
+
+      - name: Save session cookies
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: naukri_bot/naukri_cookies.json
+          key: naukri-cookies-${{ github.run_id }}
