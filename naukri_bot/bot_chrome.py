@@ -1,6 +1,9 @@
+import email
+import imaplib
 import json
 import logging
 import os
+import re
 import sys
 import random
 import base64
@@ -162,25 +165,100 @@ def login(driver):
     logging.info("Login done")
 
 
+def get_otp_from_gmail(max_wait_sec: int = 60) -> str:
+    """Read Naukri OTP from Gmail via IMAP. Returns 6-digit code or raises."""
+    gmail_user = os.environ.get("GMAIL_USER", "Ashutosh14072@gmail.com")
+    gmail_app_password = os.environ.get("GMAIL_APP_PASSWORD", "")
+    if not gmail_app_password:
+        raise Exception("GMAIL_APP_PASSWORD secret not set — cannot auto-read OTP")
+
+    logging.info(f"Waiting up to {max_wait_sec}s for Naukri OTP email...")
+    deadline = time.time() + max_wait_sec
+
+    while time.time() < deadline:
+        try:
+            mail = imaplib.IMAP4_SSL("imap.gmail.com")
+            mail.login(gmail_user, gmail_app_password)
+            mail.select("inbox")
+
+            # Search recent Naukri emails (last 2 min)
+            for search_q in ['FROM "naukri" UNSEEN', 'FROM "naukri"']:
+                _, msgs = mail.search(None, search_q)
+                if msgs[0]:
+                    break
+
+            if msgs[0]:
+                ids = msgs[0].split()
+                # Check last 3 emails for OTP
+                for msg_id in reversed(ids[-3:]):
+                    _, data = mail.fetch(msg_id, "(RFC822)")
+                    raw = data[0][1]
+                    msg = email.message_from_bytes(raw)
+
+                    body = ""
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            ct = part.get_content_type()
+                            if ct in ("text/plain", "text/html"):
+                                body = part.get_payload(decode=True).decode(errors="ignore")
+                                break
+                    else:
+                        body = msg.get_payload(decode=True).decode(errors="ignore")
+
+                    # Extract 6-digit OTP
+                    match = re.search(r'\b(\d{6})\b', body)
+                    if match:
+                        otp = match.group(1)
+                        logging.info(f"OTP found: {otp}")
+                        mail.close()
+                        mail.logout()
+                        return otp
+
+            mail.close()
+            mail.logout()
+
+        except Exception as e:
+            logging.warning(f"Gmail IMAP attempt: {e}")
+
+        time.sleep(5)
+
+    raise Exception("OTP not received in Gmail within 60 seconds")
+
+
 def handle_otp_if_present(driver):
-    """If Naukri shows OTP screen, detect it and raise clear error."""
+    """Auto-handle Naukri OTP screen using Gmail IMAP."""
     try:
-        otp_input = WebDriverWait(driver, 5).until(
+        otp_input = WebDriverWait(driver, 6).until(
             EC.presence_of_element_located(
-                (By.XPATH, "//input[contains(@placeholder,'OTP') or contains(@id,'otp') or contains(@name,'otp')]")
+                (By.XPATH, "//input[contains(translate(@placeholder,'OTP','otp'),'otp') "
+                           "or contains(@id,'otp') or contains(@name,'otp') "
+                           "or contains(@class,'otp')]")
             )
         )
-        # OTP screen detected — take screenshot for debugging
-        driver.save_screenshot("/tmp/otp_screen.png")
-        logging.error("OTP screen detected! Naukri requires manual OTP verification.")
-        logging.error("FIX: Log in manually once from the GitHub Actions IP to mark it as trusted.")
-        logging.error(f"Current URL: {driver.current_url}")
-        raise Exception(
-            "OTP required — Naukri flagged GitHub Actions IP as new device. "
-            "Run the bot manually once OR log in to naukri.com and verify the device."
-        )
+        logging.info(f"OTP screen detected at: {driver.current_url}")
+
+        otp = get_otp_from_gmail(max_wait_sec=60)
+
+        otp_input.click()
+        human_delay(0.5, 1)
+        type_slow(otp_input, otp)
+        human_delay(1, 2)
+
+        # Click submit/verify button
+        for sel in ["//button[@type='submit']", "//button[contains(text(),'Verify')]",
+                    "//button[contains(text(),'Submit')]", "//input[@type='submit']"]:
+            try:
+                btn = WebDriverWait(driver, 4).until(EC.element_to_be_clickable((By.XPATH, sel)))
+                click_js(driver, btn)
+                break
+            except TimeoutException:
+                continue
+
+        human_delay(6, 10)
+        logging.info("OTP submitted successfully")
+
     except TimeoutException:
-        pass  # No OTP — good
+        pass  # No OTP screen — good
 
 
 # ---------------------------------------------------------------------------
