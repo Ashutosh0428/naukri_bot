@@ -207,7 +207,19 @@ def login(driver):
     click_js(driver, login_btn)
     human_delay(8, 12)
 
-    handle_otp_if_present(driver)
+    logging.info(f"Post-click URL: {driver.current_url}")
+
+    # If still on login page → OTP challenge (Naukri overlays OTP on same URL)
+    if "nlogin/login" in driver.current_url:
+        logging.info("Still on login page — OTP required")
+        handle_otp_if_present(driver)
+        if "nlogin/login" in driver.current_url:
+            driver.save_screenshot("/tmp/login_failed.png")
+            raise Exception(
+                f"Login failed — still on login page after OTP attempt. "
+                f"Check credentials or screenshot at /tmp/login_failed.png"
+            )
+
     save_cookies(driver)
     logging.info("Login done")
 
@@ -272,47 +284,21 @@ def get_otp_from_gmail(max_wait_sec: int = 60) -> str:
     raise Exception("OTP not received in Gmail within 60 seconds")
 
 
-def _detect_otp_page(driver) -> bool:
-    url = driver.current_url.lower()
-    if any(k in url for k in ["verify", "otp", "security", "mfa", "challenge", "validation"]):
-        return True
-    try:
-        src = driver.page_source.lower()
-        return any(k in src for k in ["enter otp", "one time password", "verification code",
-                                       "otp sent", "otp has been sent"])
-    except Exception:
-        return False
-
-
 def handle_otp_if_present(driver):
-    """Auto-handle Naukri OTP screen using Gmail IMAP."""
-    human_delay(2, 3)
-    logging.info(f"Post-login URL: {driver.current_url}")
+    """Handle OTP challenge — only called when post-login URL is still the login page."""
+    # Extra wait: Naukri overlays OTP form dynamically after login click
+    human_delay(4, 6)
+    driver.save_screenshot("/tmp/otp_page.png")
 
-    on_otp_page = _detect_otp_page(driver)
+    src = driver.page_source.lower()
+    logging.info(f"'otp' in page source: {'otp' in src}")
 
-    if not on_otp_page:
-        # Fallback: look for OTP input element
-        try:
-            WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located(
-                    (By.XPATH, "//input[contains(translate(@placeholder,'OTP','otp'),'otp') "
-                               "or contains(@id,'otp') or contains(@name,'otp') "
-                               "or contains(@class,'otp')]")
-                )
-            )
-            on_otp_page = True
-        except TimeoutException:
-            pass
-
-    if not on_otp_page:
-        logging.info("No OTP screen — proceeding")
+    if "otp" not in src and "verification" not in src and "verify" not in src:
+        # No OTP — likely wrong password or account issue
+        logging.warning("No OTP content on login page — check credentials")
         return
 
-    logging.info(f"OTP screen detected: {driver.current_url}")
-    driver.save_screenshot("/tmp/otp_screen_debug.png")
-
-    # Find OTP input — try multiple selectors
+    # Find OTP input — Naukri may use various attributes
     otp_input = None
     for by, sel in [
         (By.XPATH, "//input[contains(translate(@placeholder,'OTP','otp'),'otp')]"),
@@ -320,19 +306,20 @@ def handle_otp_if_present(driver):
         (By.XPATH, "//input[@type='number']"),
         (By.XPATH, "//input[@type='tel']"),
         (By.XPATH, "//input[@type='text' and @maxlength='6']"),
-        (By.XPATH, "//input[@type='text']"),
+        (By.XPATH, "//input[@type='text' and @maxlength]"),
     ]:
         try:
             otp_input = WebDriverWait(driver, 3).until(EC.presence_of_element_located((by, sel)))
-            logging.info(f"OTP input found via: {sel}")
+            logging.info(f"OTP input found: {sel}")
             break
         except TimeoutException:
             continue
 
     if not otp_input:
-        logging.error("OTP page detected but input not found — check /tmp/otp_screen_debug.png")
+        logging.error("OTP text found but no input field — check /tmp/otp_page.png")
         return
 
+    logging.info("Reading OTP from Gmail...")
     otp = get_otp_from_gmail(max_wait_sec=60)
     otp_input.click()
     human_delay(0.5, 1)
@@ -350,8 +337,8 @@ def handle_otp_if_present(driver):
         except TimeoutException:
             continue
 
-    human_delay(6, 10)
-    logging.info("OTP submitted successfully")
+    human_delay(8, 12)
+    logging.info(f"Post-OTP URL: {driver.current_url}")
 
 
 # ---------------------------------------------------------------------------
