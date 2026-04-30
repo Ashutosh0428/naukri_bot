@@ -1,0 +1,51 @@
+name: Naukri Profile Refresh
+
+on:
+  schedule:
+    # 4 times daily — IST = UTC+5:30
+    # 9:00 AM IST  = 3:30 UTC
+    # 12:00 PM IST = 6:30 UTC
+    # 5:00 PM IST  = 11:30 UTC
+    # 9:00 PM IST  = 15:30 UTC
+    - cron: "30 3 * * *"
+    - cron: "30 6 * * *"
+    - cron: "30 11 * * *"
+    - cron: "30 15 * * *"
+  workflow_dispatch:  # allows manual trigger from GitHub UI
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Chrome
+        run: |
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list'
+          sudo apt-get update -q
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Install ChromeDriver
+        run: |
+          pip install webdriver-manager
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Naukri bot
+        env:
+          NAUKRI_USERNAME: ${{ secrets.NAUKRI_USERNAME }}
+          NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
+          WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
+          WHATSAPP_APIKEY: ${{ secrets.WHATSAPP_APIKEY }}
+          RESUME_BASE64: ${{ secrets.RESUME_BASE64 }}
+        run: python naukri_bot/bot_chrome.py
