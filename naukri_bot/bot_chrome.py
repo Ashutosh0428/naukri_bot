@@ -323,24 +323,45 @@ def handle_otp_if_present(driver):
 
     logging.info("Reading OTP from Gmail...")
     otp = get_otp_from_gmail(max_wait_sec=60)
-    otp_input.click()
-    human_delay(0.5, 1)
-    type_slow(otp_input, otp)
-    human_delay(1, 2)
+    logging.info(f"Entering OTP: {otp}")
 
-    for sel in ["//button[@type='submit']", "//button[contains(text(),'Verify')]",
-                "//button[contains(text(),'Submit')]", "//button[contains(text(),'Continue')]",
+    # React-compatible input: native setter + synthetic events
+    driver.execute_script("""
+        var inp = arguments[0], val = arguments[1];
+        var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        setter.call(inp, val);
+        inp.dispatchEvent(new Event('input',  { bubbles: true }));
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+        inp.dispatchEvent(new Event('keyup',  { bubbles: true }));
+    """, otp_input, otp)
+    human_delay(1, 2)
+    driver.save_screenshot("/tmp/otp_entered.png")
+    logging.info(f"OTP field value after JS fill: {otp_input.get_attribute('value')}")
+
+    # Try Verify button — regular Selenium click first, JS fallback
+    submitted = False
+    for sel in ["//button[contains(text(),'Verify')]", "//button[contains(text(),'Submit')]",
+                "//button[contains(text(),'Continue')]", "//button[@type='submit']",
                 "//input[@type='submit']"]:
         try:
             btn = WebDriverWait(driver, 4).until(EC.element_to_be_clickable((By.XPATH, sel)))
-            click_js(driver, btn)
+            try:
+                btn.click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", btn)
             logging.info(f"OTP submitted via: {sel}")
+            submitted = True
             break
         except TimeoutException:
             continue
 
-    human_delay(8, 12)
+    if not submitted:
+        logging.error("Could not find OTP submit button")
+
+    human_delay(10, 14)
+    driver.save_screenshot("/tmp/post_otp.png")
     logging.info(f"Post-OTP URL: {driver.current_url}")
+    logging.info(f"Post-OTP title: {driver.title}")
 
 
 # ---------------------------------------------------------------------------
