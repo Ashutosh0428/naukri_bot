@@ -253,9 +253,6 @@ def toggle_headline_dot(driver) -> str:
         scroll_to(driver, edit_btn)
         click_js(driver, edit_btn)
 
-    scroll_to(driver, edit_btn)
-    click_js(driver, edit_btn)
-
     textarea = WebDriverWait(driver, 10).until(
         EC.visibility_of_element_located((By.ID, "resumeHeadlineTxt"))
     )
