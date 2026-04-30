@@ -2,16 +2,23 @@ name: Naukri Profile Refresh
 
 on:
   schedule:
-    # 4 times daily — IST = UTC+5:30
+    # 6 times daily — IST = UTC+5:30
     # 9:00 AM IST  = 3:30 UTC
-    # 12:00 PM IST = 6:30 UTC
-    # 5:00 PM IST  = 11:30 UTC
+    # 11:00 AM IST = 5:30 UTC
+    # 1:00 PM IST  = 7:30 UTC
+    # 3:00 PM IST  = 9:30 UTC
+    # 6:00 PM IST  = 12:30 UTC
     # 9:00 PM IST  = 15:30 UTC
     - cron: "30 3 * * *"
-    - cron: "30 6 * * *"
-    - cron: "30 11 * * *"
+    - cron: "30 5 * * *"
+    - cron: "30 7 * * *"
+    - cron: "30 9 * * *"
+    - cron: "30 12 * * *"
     - cron: "30 15 * * *"
   workflow_dispatch:  # allows manual trigger from GitHub UI
+
+permissions:
+  contents: write
 
 jobs:
   refresh:
