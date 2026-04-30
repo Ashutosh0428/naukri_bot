@@ -49,26 +49,23 @@ def load_credentials():
 
 
 USERNAME, PASSWORD, RESUME_PATH = load_credentials()
-WHATSAPP_PHONE = os.environ.get("WHATSAPP_PHONE", "")    # e.g. 919651895627
-WHATSAPP_APIKEY = os.environ.get("WHATSAPP_APIKEY", "")  # from callmebot setup
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")    # from @BotFather
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")  # your personal chat ID
 
 
 # ---------------------------------------------------------------------------
-# WhatsApp via CallMeBot (free)
+# Telegram notification
 # ---------------------------------------------------------------------------
-def send_whatsapp(message: str):
-    if not WHATSAPP_PHONE or not WHATSAPP_APIKEY:
-        logging.warning("WhatsApp not configured — skipping notification")
+def send_telegram(message: str):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        logging.warning("Telegram not configured — skipping notification")
         return
     try:
-        url = (
-            f"https://api.callmebot.com/whatsapp.php"
-            f"?phone={WHATSAPP_PHONE}&text={requests.utils.quote(message)}&apikey={WHATSAPP_APIKEY}"
-        )
-        r = requests.get(url, timeout=15)
-        logging.info(f"WhatsApp sent [{r.status_code}]: {message[:60]}")
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message}, timeout=15)
+        logging.info(f"Telegram sent [{r.status_code}]: {message[:60]}")
     except Exception as e:
-        logging.error(f"WhatsApp send failed: {e}")
+        logging.error(f"Telegram send failed: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -289,13 +286,13 @@ def main():
             f"Time: {now} IST"
         )
         logging.info(msg)
-        send_whatsapp(msg)
+        send_telegram(msg)
 
     except Exception as e:
         err = f"❌ Naukri bot FAILED\nError: {str(e)}\nTime: {now} IST"
         logging.error(err)
         logging.error(traceback.format_exc())
-        send_whatsapp(err)
+        send_telegram(err)
         sys.exit(1)
     finally:
         if driver:
