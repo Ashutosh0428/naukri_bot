@@ -226,15 +226,23 @@ def login(driver):
     logging.info("Login done")
 
 
-def get_otp_from_gmail(max_wait_sec: int = 60) -> str:
-    """Read Naukri OTP from Gmail via IMAP. Returns 6-digit code or raises."""
+def get_otp_from_gmail(max_wait_sec: int = 90) -> str:
+    """Read the NEWEST Naukri OTP from Gmail. Waits for fresh email."""
+    import email.utils as eutils
     gmail_user = os.environ.get("GMAIL_USER", "Ashutosh14072@gmail.com")
     gmail_app_password = os.environ.get("GMAIL_APP_PASSWORD", "")
     if not gmail_app_password:
-        raise Exception("GMAIL_APP_PASSWORD secret not set — cannot auto-read OTP")
+        raise Exception("GMAIL_APP_PASSWORD secret not set")
 
-    logging.info(f"Waiting up to {max_wait_sec}s for Naukri OTP email...")
-    deadline = time.time() + max_wait_sec
+    # Record time BEFORE waiting so we can filter emails sent after this point
+    triggered_at = time.time()
+
+    # Give Naukri time to actually send the email
+    logging.info("Waiting 20s for Naukri OTP email to arrive...")
+    time.sleep(20)
+
+    logging.info(f"Polling Gmail for OTP (up to {max_wait_sec}s total)...")
+    deadline = triggered_at + max_wait_sec
 
     while time.time() < deadline:
         try:
@@ -242,35 +250,40 @@ def get_otp_from_gmail(max_wait_sec: int = 60) -> str:
             mail.login(gmail_user, gmail_app_password)
             mail.select("inbox")
 
-            # Search recent Naukri emails (last 2 min)
-            for search_q in ['FROM "naukri" UNSEEN', 'FROM "naukri"']:
-                _, msgs = mail.search(None, search_q)
-                if msgs[0]:
-                    break
-
+            _, msgs = mail.search(None, 'FROM "naukri"')
             if msgs[0]:
                 ids = msgs[0].split()
-                # Check last 3 emails for OTP
-                for msg_id in reversed(ids[-3:]):
+                # Walk most-recent first, stop at first fresh OTP
+                for msg_id in reversed(ids[-10:]):
                     _, data = mail.fetch(msg_id, "(RFC822)")
                     raw = data[0][1]
-                    msg = email.message_from_bytes(raw)
+                    msg_obj = email.message_from_bytes(raw)
+
+                    # Skip emails older than when we triggered login
+                    date_hdr = msg_obj.get("Date", "")
+                    try:
+                        email_ts = eutils.parsedate_to_datetime(date_hdr).timestamp()
+                        age = triggered_at - email_ts
+                        if age > 120:           # older than 2 min before trigger
+                            logging.info(f"Skipping old email (age {int(age)}s): {date_hdr}")
+                            continue
+                    except Exception:
+                        pass  # can't parse date — still try
 
                     body = ""
-                    if msg.is_multipart():
-                        for part in msg.walk():
-                            ct = part.get_content_type()
-                            if ct in ("text/plain", "text/html"):
+                    if msg_obj.is_multipart():
+                        for part in msg_obj.walk():
+                            if part.get_content_type() in ("text/plain", "text/html"):
                                 body = part.get_payload(decode=True).decode(errors="ignore")
                                 break
                     else:
-                        body = msg.get_payload(decode=True).decode(errors="ignore")
+                        body = msg_obj.get_payload(decode=True).decode(errors="ignore")
 
-                    # Extract 6-digit OTP
                     match = re.search(r'\b(\d{6})\b', body)
                     if match:
                         otp = match.group(1)
-                        logging.info(f"OTP found: {otp}")
+                        logging.info(f"OTP found: {otp} | email date: {date_hdr}")
+                        mail.store(msg_id, "+FLAGS", "\\Seen")   # mark read
                         mail.close()
                         mail.logout()
                         return otp
@@ -283,7 +296,7 @@ def get_otp_from_gmail(max_wait_sec: int = 60) -> str:
 
         time.sleep(5)
 
-    raise Exception("OTP not received in Gmail within 60 seconds")
+    raise Exception(f"OTP not received in Gmail within {max_wait_sec}s")
 
 
 def handle_otp_if_present(driver):
@@ -322,10 +335,10 @@ def handle_otp_if_present(driver):
         return
 
     logging.info("Reading OTP from Gmail...")
-    otp = get_otp_from_gmail(max_wait_sec=60)
+    otp = get_otp_from_gmail(max_wait_sec=90)
     logging.info(f"Entering OTP: {otp}")
 
-    # React-compatible input: native setter + synthetic events
+    # Approach 1: JS native setter + React synthetic events
     driver.execute_script("""
         var inp = arguments[0], val = arguments[1];
         var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
@@ -334,9 +347,23 @@ def handle_otp_if_present(driver):
         inp.dispatchEvent(new Event('change', { bubbles: true }));
         inp.dispatchEvent(new Event('keyup',  { bubbles: true }));
     """, otp_input, otp)
-    human_delay(1, 2)
-    driver.save_screenshot("/tmp/otp_entered.png")
-    logging.info(f"OTP field value after JS fill: {otp_input.get_attribute('value')}")
+    human_delay(0.5, 1)
+
+    filled_val = otp_input.get_attribute("value") or ""
+    logging.info(f"After JS fill, value='{filled_val}'")
+
+    if not filled_val:
+        # Approach 2: direct send_keys character by character
+        logging.info("JS fill empty — using send_keys fallback")
+        otp_input.click()
+        human_delay(0.3, 0.6)
+        otp_input.clear()
+        for char in otp:
+            otp_input.send_keys(char)
+            time.sleep(0.12)
+        human_delay(0.5, 1)
+        filled_val = otp_input.get_attribute("value") or ""
+        logging.info(f"After send_keys, value='{filled_val}'")
 
     # Try Verify button — regular Selenium click first, JS fallback
     submitted = False
