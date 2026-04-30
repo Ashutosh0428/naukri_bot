@@ -156,7 +156,31 @@ def login(driver):
     )
     click_js(driver, login_btn)
     human_delay(8, 12)
+
+    # Handle OTP screen if Naukri requires verification from new IP
+    handle_otp_if_present(driver)
     logging.info("Login done")
+
+
+def handle_otp_if_present(driver):
+    """If Naukri shows OTP screen, detect it and raise clear error."""
+    try:
+        otp_input = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located(
+                (By.XPATH, "//input[contains(@placeholder,'OTP') or contains(@id,'otp') or contains(@name,'otp')]")
+            )
+        )
+        # OTP screen detected — take screenshot for debugging
+        driver.save_screenshot("/tmp/otp_screen.png")
+        logging.error("OTP screen detected! Naukri requires manual OTP verification.")
+        logging.error("FIX: Log in manually once from the GitHub Actions IP to mark it as trusted.")
+        logging.error(f"Current URL: {driver.current_url}")
+        raise Exception(
+            "OTP required — Naukri flagged GitHub Actions IP as new device. "
+            "Run the bot manually once OR log in to naukri.com and verify the device."
+        )
+    except TimeoutException:
+        pass  # No OTP — good
 
 
 # ---------------------------------------------------------------------------
@@ -165,27 +189,69 @@ def login(driver):
 def toggle_headline_dot(driver) -> str:
     logging.info("Toggling headline dot...")
     driver.get("https://www.naukri.com/mnjuser/profile")
-    human_delay(4, 6)
+    human_delay(5, 8)
 
-    edit_selectors = [
-        (By.XPATH, "//div[@id='lazyResumeHead']//span[contains(@class,'edit')]"),
-        (By.XPATH, "//div[contains(@class,'resumeHeadline')]//span[contains(@class,'edit')]"),
-        (By.CSS_SELECTOR, "#lazyResumeHead .edit.icon"),
-        (By.CSS_SELECTOR, ".resumeHeadline .edit"),
-        (By.XPATH, "//span[contains(@class,'editIcon') and ancestor::*[contains(@id,'ResumeHead')]]"),
-    ]
+    # Log page title + URL to help debug
+    logging.info(f"Page: {driver.title} | URL: {driver.current_url}")
 
-    edit_btn = None
-    for by, sel in edit_selectors:
-        try:
-            edit_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((by, sel)))
-            logging.info(f"Edit button found: {sel}")
-            break
-        except TimeoutException:
-            continue
+    # Try JS approach first — most reliable across Naukri DOM changes
+    clicked = driver.execute_script("""
+        var selectors = [
+            '#lazyResumeHead .edit.icon',
+            '#lazyResumeHead span.edit',
+            '.resumeHeadline .edit',
+            '.widgetHead .edit',
+            'span.edit.icon'
+        ];
+        for (var s of selectors) {
+            var el = document.querySelector(s);
+            if (el) { el.click(); return 'clicked: ' + s; }
+        }
+        // Try by text content (material icon font)
+        var spans = document.querySelectorAll('span');
+        for (var sp of spans) {
+            if (sp.textContent.trim() === 'editOneTheme' || sp.textContent.trim() === 'edit') {
+                var rect = sp.getBoundingClientRect();
+                if (rect.top > 0) { sp.click(); return 'clicked by text: ' + sp.textContent.trim(); }
+            }
+        }
+        return null;
+    """)
 
-    if not edit_btn:
-        raise Exception("Could not find headline edit button")
+    if clicked:
+        logging.info(f"JS click: {clicked}")
+        human_delay(1, 2)
+    else:
+        # Fallback to Selenium selectors
+        edit_selectors = [
+            (By.XPATH, "//span[contains(@class,'edit') and contains(@class,'icon')]"),
+            (By.XPATH, "//span[text()='editOneTheme']"),
+            (By.XPATH, "//span[normalize-space(text())='edit' and contains(@class,'nI-gNb')]"),
+            (By.XPATH, "//div[@id='lazyResumeHead']//span[contains(@class,'edit')]"),
+            (By.XPATH, "//div[contains(@class,'resumeHeadline')]//span"),
+            (By.CSS_SELECTOR, ".resumeHeadline .editIcon"),
+            (By.CSS_SELECTOR, "#lazyResumeHead .edit"),
+        ]
+        edit_btn = None
+        for by, sel in edit_selectors:
+            try:
+                edit_btn = WebDriverWait(driver, 4).until(EC.element_to_be_clickable((by, sel)))
+                logging.info(f"Edit button found: {sel}")
+                break
+            except TimeoutException:
+                continue
+
+        if not edit_btn:
+            driver.save_screenshot("/tmp/profile_page_debug.png")
+            # Log all span classes to help debug
+            spans_info = driver.execute_script(
+                "return Array.from(document.querySelectorAll('span')).slice(0,30).map(s => s.className + '|' + s.textContent.trim().slice(0,20))"
+            )
+            logging.error(f"Spans on page: {spans_info}")
+            raise Exception("Could not find headline edit button")
+
+        scroll_to(driver, edit_btn)
+        click_js(driver, edit_btn)
 
     scroll_to(driver, edit_btn)
     click_js(driver, edit_btn)
