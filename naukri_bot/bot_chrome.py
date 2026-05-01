@@ -9,7 +9,7 @@ import random
 import base64
 import traceback
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 import requests
 from dotenv import load_dotenv
@@ -542,7 +542,8 @@ def get_last_updated(driver) -> str:
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    now = datetime.now().strftime("%d-%m-%Y %H:%M")
+    IST = timezone(timedelta(hours=5, minutes=30))
+    now = datetime.now(IST).strftime("%d-%m-%Y %H:%M")
     logging.info(f"Run started: {now}")
 
     driver = None
