@@ -1,11 +1,16 @@
 name: Naukri Profile Refresh
 
+concurrency:
+  group: naukri-refresh
+  cancel-in-progress: false
+
 on:
   schedule:
     # 16 times daily — every hour from 6:00 AM to 9:00 PM IST
-    # UTC+5:30 offset: hours 2-17 UTC = 8:00 AM - 11:00 PM IST
-    # Budget: 16 runs × ~4 min × 30 days = ~1,920 min/month (free tier: 2,000)
+    # UTC+5:30 offset: hours 0-15 UTC = 6:00 AM - 9:00 PM IST
+    # Budget: 16 runs × ~2 min × 30 days = ~960 min/month
     - cron: "30 0-15 * * *"
+
   workflow_dispatch:  # manual trigger from GitHub Actions UI
 
 permissions:
@@ -14,7 +19,7 @@ permissions:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
 
     steps:
       - name: Checkout repo
@@ -22,20 +27,17 @@ jobs:
 
       - name: Show run time (IST)
         run: |
-          echo "UTC:  $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          echo "IST:  $(TZ='Asia/Kolkata' date '+%Y-%m-%d %H:%M:%S IST')"
+          echo "UTC: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "IST: $(TZ='Asia/Kolkata' date '+%Y-%m-%d %H:%M:%S IST')"
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install Chrome
-        run: |
-          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list'
-          sudo apt-get update -q
-          sudo apt-get install -y google-chrome-stable
+      # Ubuntu runners usually already include Chrome
+      - name: Verify Chrome
+        run: google-chrome --version || chromium-browser --version
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -54,8 +56,16 @@ jobs:
         run: |
           git config user.name "naukri-bot"
           git config user.email "naukri-bot@users.noreply.github.com"
-          git add naukri_bot/naukri_cookies.json
-          git diff --staged --quiet || git commit -m "chore: refresh session cookies [skip ci]"
-          git push || true
+
+          if [[ -f naukri_bot/naukri_cookies.json ]]; then
+            git add naukri_bot/naukri_cookies.json
+
+            if ! git diff --staged --quiet; then
+              git commit -m "chore: refresh session cookies [skip ci]"
+              git push
+            else
+              echo "No cookie changes"
+            fi
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
