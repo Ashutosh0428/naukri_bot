@@ -9,7 +9,7 @@ on:
     # 16 times daily — every hour from 6:00 AM to 9:00 PM IST
     # UTC+5:30 offset: hours 0-15 UTC = 6:00 AM - 9:00 PM IST
     # Budget: 16 runs × ~2 min × 30 days = ~960 min/month
-    - cron: "30 0-15 * * *"
+    - cron: "17 0-15 * * *"
 
   workflow_dispatch:  # manual trigger from GitHub Actions UI
 
