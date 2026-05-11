@@ -1,17 +1,13 @@
 name: Naukri Profile Refresh
 
-concurrency:
-  group: naukri-refresh
-  cancel-in-progress: false
-
 on:
   schedule:
-    # 16 times daily — every hour from 6:00 AM to 9:00 PM IST
-    # UTC+5:30 offset: hours 0-15 UTC = 6:00 AM - 9:00 PM IST
-    # Budget: 16 runs × ~2 min × 30 days = ~960 min/month
-    - cron: "17 0-15 * * *"
+    # 16 times daily — every hour from 8:00 AM to 11:00 PM IST
+    # UTC+5:30 offset: hours 2-17 UTC = 8:00 AM - 11:00 PM IST
+    # Budget: 16 runs × ~4 min × 30 days = ~1,920 min/month (free tier: 2,000)
+    - cron: "30 2-17 * * *"
 
-  workflow_dispatch:  # manual trigger from GitHub Actions UI
+  workflow_dispatch:  # manual trigger + cron-job.org external trigger
 
 permissions:
   contents: write
