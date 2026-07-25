@@ -113,7 +113,9 @@ def update_resume(driver):
             EC.element_to_be_clickable((By.XPATH, "//input[@type='button' and @value='Update resume' and contains(@class, 'dummyUpload')]"))
         )
         file_input = driver.find_element(By.XPATH, "//input[@type='file']")
-        resume_file_path = os.path.abspath("ASHUTOSH-SHARMA (1).pdf")
+        resume_file_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "Ashutosh_Sharma_AI_Engineer_Resume.docx")
         file_input.send_keys(resume_file_path)
         time.sleep(10)
         logging.info("Resume uploaded successfully.")

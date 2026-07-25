@@ -48,9 +48,12 @@ def load_credentials():
     if not username or not password:
         raise ValueError("NAUKRI_USERNAME and NAUKRI_PASSWORD must be set")
 
-    # Default: resume PDF in same folder as this script
+    # Default: resume in the same folder as this script. DOCX rather than PDF —
+    # Naukri parses DOCX into its own profile fields more reliably, and that
+    # parsed profile is what recruiters actually search against.
     if not resume_path:
-        resume_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Ashutosh_sharma_resume_AI_Engineer.pdf")
+        resume_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "Ashutosh_Sharma_AI_Engineer_Resume.docx")
 
     return username, password, resume_path
 
